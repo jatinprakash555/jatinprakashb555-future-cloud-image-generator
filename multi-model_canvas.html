@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local LLM Canvas - Multi-Model</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Lexend', sans-serif;
+            --bg-color: #0F051A;
+            --panel-color: rgba(22, 11, 42, 0.6);
+            --border-color: rgba(128, 90, 213, 0.2);
+            --accent-color: #805AD5;
+            --accent-hover: #6B46C1;
+            --text-color: #E2E8F0;
+            --text-muted: #A0AEC0;
+        }
+
+        .aurora-background {
+            background-color: var(--bg-color);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .aurora-background::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 150%;
+            height: 150%;
+            background-image: 
+                radial-gradient(circle at 20% 20%, rgba(128, 90, 213, 0.3) 0%, transparent 30%),
+                radial-gradient(circle at 80% 70%, rgba(213, 90, 153, 0.3) 0%, transparent 30%);
+            transform: translate(-50%, -50%);
+            animation: aurora 20s linear infinite;
+            filter: blur(100px);
+            z-index: 0;
+        }
+
+        @keyframes aurora {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(128, 90, 213, 0.4); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent-color); }
+
+        .chat-message { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .loader {
+            border: 4px solid rgba(255,255,255,0.2);
+            border-top: 4px solid var(--accent-color);
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Hacker theme for the code editor */
+        #code-editor, #code-editor * {
+            font-family: 'Courier New', Courier, monospace !important;
+            color: #00FF41 !important; /* Bright green */
+            text-shadow: 0 0 2px #00FF41, 0 0 5px #00FF41; /* Glow effect */
+        }
+        /* Override highlight.js background */
+        .hljs {
+            background: transparent !important;
+        }
+
+    </style>
+</head>
+<body class="aurora-background text-[var(--text-color)] h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-[var(--panel-color)] backdrop-blur-lg border-b border-[var(--border-color)] p-3 flex items-center justify-between shadow-2xl z-20">
+        <div class="flex items-center gap-3">
+            <svg class="w-8 h-8 text-[var(--accent-color)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h12M3.75 3h16.5M3.75 12h16.5m-16.5 4.5h16.5M3.75 21h16.5M12 3v18" />
+            </svg>
+            <h1 class="text-xl font-bold text-white">Multi-Model Canvas</h1>
+        </div>
+        <button id="run-button" class="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 transition-all duration-300 transform hover:scale-105 shadow-lg shadow-purple-500/20">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+            </svg>
+            Run in New Window
+        </button>
+    </header>
+
+    <!-- API Key and Model Selector -->
+    <div class="p-2 bg-[var(--panel-color)] backdrop-blur-lg border-b border-[var(--border-color)] flex flex-col gap-2 z-10">
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
+                <label for="model-selector" class="text-sm font-semibold text-[var(--text-muted)]">Model:</label>
+                <select id="model-selector" class="bg-black/30 border border-[var(--border-color)] p-1 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)]">
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openai">OpenAI (ChatGPT)</option>
+                    <option value="llama">Llama (local)</option>
+                </select>
+            </div>
+            <div class="flex items-center gap-2 flex-grow">
+                <label for="api-key-input" class="text-sm font-semibold text-[var(--text-muted)]">API Key:</label>
+                <input type="password" id="api-key-input" class="flex-grow bg-black/30 border border-[var(--border-color)] p-1 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] disabled:opacity-50" placeholder="Enter API key for selected model.">
+            </div>
+        </div>
+        <div id="gemini-plan-indicator" class="text-xs text-[var(--text-muted)] flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span>Plan: <b id="plan-name" class="text-white">Free Tier</b></span>
+                <span>RPM: <b id="rpm-limit" class="text-white">10</b></span>
+                <span>RPD: <b id="rpd-limit" class="text-white">250</b></span>
+            </div>
+            <div class="flex items-center gap-2">
+                <label for="pro-toggle" class="cursor-pointer">I have a Pro/Paid Plan</label>
+                <input type="checkbox" id="pro-toggle" class="h-4 w-4 rounded bg-black/30 border-[var(--border-color)] text-[var(--accent-color)] focus:ring-[var(--accent-color)]">
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Main Content -->
+    <div class="flex flex-1 overflow-hidden z-10">
+        <!-- Left Panel: Chat -->
+        <div class="w-1/3 flex flex-col bg-[var(--panel-color)] backdrop-blur-md border-r border-[var(--border-color)]">
+            <div id="chat-history" class="flex-1 p-4 overflow-y-auto space-y-4">
+                <div class="chat-message">
+                    <div class="bg-black/30 inline-block rounded-xl p-3 max-w-sm border border-[var(--border-color)]">
+                        <p class="font-bold text-[var(--accent-color)]">AI Assistant</p>
+                        <p class="text-[var(--text-muted)]">Hello! Give me an idea for an app, and I'll do my best to build it.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 border-t border-[var(--border-color)]">
+                <div class="flex items-center bg-black/30 rounded-lg border border-[var(--border-color)] focus-within:ring-2 focus-within:ring-[var(--accent-color)] transition-all">
+                    <input type="text" id="chat-input" class="w-full bg-transparent p-3 focus:outline-none" placeholder="e.g., 'A simple pomodoro timer app'...">
+                    <button id="send-button" class="p-3 text-[var(--accent-color)] hover:text-[var(--accent-hover)]">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Right Panel: Editor -->
+        <div class="w-2/3 flex flex-col bg-black/20">
+            <div class="flex-1 relative overflow-auto">
+                <div class="absolute top-2 right-2 z-10">
+                    <button id="copy-button" class="bg-black/30 text-xs text-white/70 hover:bg-black/50 hover:text-white px-3 py-1 rounded-md transition-all">Copy Code</button>
+                </div>
+                <pre class="h-full w-full"><code id="code-editor" class="language-plaintext h-full w-full !bg-transparent p-4" contenteditable="true" spellcheck="false">The AI-generated code will appear here.</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatHistory = document.getElementById('chat-history');
+        const chatInput = document.getElementById('chat-input');
+        const sendButton = document.getElementById('send-button');
+        const codeEditor = document.getElementById('code-editor');
+        const runButton = document.getElementById('run-button');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const modelSelector = document.getElementById('model-selector');
+        const copyButton = document.getElementById('copy-button');
+        const geminiPlanIndicator = document.getElementById('gemini-plan-indicator');
+        const proToggle = document.getElementById('pro-toggle');
+        const planName = document.getElementById('plan-name');
+        const rpmLimit = document.getElementById('rpm-limit');
+        const rpdLimit = document.getElementById('rpd-limit');
+        
+        let previewWindow = null;
+        let isLoading = false;
+        let timerInterval = null;
+
+        const geminiLimits = {
+            free: { name: 'Free Tier', rpm: 10, rpd: 250 },
+            pro: { name: 'Pro Tier', rpm: 150, rpd: 10000 }
+        };
+
+        // --- Event Listeners ---
+        sendButton.addEventListener('click', handleSendMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleSendMessage();
+        });
+        runButton.addEventListener('click', openPreviewWindow);
+        copyButton.addEventListener('click', copyCodeToClipboard);
+        
+        apiKeyInput.addEventListener('input', () => {
+            const selectedModel = modelSelector.value;
+            localStorage.setItem(`${selectedModel}ApiKey`, apiKeyInput.value);
+        });
+
+        modelSelector.addEventListener('change', () => {
+            const selectedModel = modelSelector.value;
+            const savedKey = localStorage.getItem(`${selectedModel}ApiKey`) || '';
+            apiKeyInput.value = savedKey;
+            apiKeyInput.disabled = (selectedModel === 'llama');
+            updatePlanIndicatorVisibility();
+        });
+        
+        proToggle.addEventListener('change', () => {
+            const isPro = proToggle.checked;
+            localStorage.setItem('geminiPlanIsPro', isPro);
+            updatePlanIndicatorUI(isPro);
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const selectedModel = modelSelector.value;
+            const savedKey = localStorage.getItem(`${selectedModel}ApiKey`);
+            if (savedKey) {
+                apiKeyInput.value = savedKey;
+            }
+            
+            const savedPlanIsPro = localStorage.getItem('geminiPlanIsPro') === 'true';
+            proToggle.checked = savedPlanIsPro;
+            updatePlanIndicatorUI(savedPlanIsPro);
+            updatePlanIndicatorVisibility();
+        });
+
+        // --- Functions ---
+
+        function updatePlanIndicatorVisibility() {
+            const selectedModel = modelSelector.value;
+            geminiPlanIndicator.style.display = selectedModel === 'gemini' ? 'flex' : 'none';
+        }
+
+        function updatePlanIndicatorUI(isPro) {
+            const plan = isPro ? geminiLimits.pro : geminiLimits.free;
+            planName.textContent = plan.name;
+            rpmLimit.textContent = plan.rpm;
+            rpdLimit.textContent = plan.rpd;
+        }
+
+        function handleSendMessage() {
+            if (isLoading) return; 
+            const message = chatInput.value.trim();
+            if (!message) return;
+            const selectedModel = modelSelector.value;
+            const apiKey = apiKeyInput.value.trim();
+
+            if (selectedModel !== 'llama' && !apiKey) {
+                appendMessage(`Please enter an API key for the selected model.`, 'ai-error');
+                return;
+            }
+            appendMessage(message, 'user');
+            chatInput.value = '';
+            generateAIResponse(message, apiKey, selectedModel);
+        }
+
+        function appendMessage(text, sender) {
+            const messageWrapper = document.createElement('div');
+            messageWrapper.className = 'chat-message';
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'inline-block rounded-xl p-3 max-w-sm border';
+            const senderP = document.createElement('p');
+            senderP.className = 'font-bold';
+            const textP = document.createElement('p');
+            textP.textContent = text;
+
+            if (sender === 'user') {
+                messageWrapper.className += ' text-right';
+                messageDiv.className += ' bg-gradient-to-br from-purple-500 to-pink-500 border-transparent';
+                senderP.textContent = 'You';
+                senderP.className += ' text-white';
+                textP.className = 'text-purple-100';
+                messageDiv.append(senderP, textP);
+            } else if (sender === 'ai') {
+                messageDiv.className += ' bg-black/30 border-[var(--border-color)]';
+                senderP.textContent = 'AI Assistant';
+                senderP.className += ' text-[var(--accent-color)]';
+                textP.className = 'text-[var(--text-muted)]';
+                messageDiv.append(senderP, textP);
+            } else if (sender === 'ai-error') {
+                messageDiv.className += ' bg-red-500/30 border-red-500/50';
+                senderP.textContent = 'Error';
+                senderP.className += ' text-white';
+                textP.className = 'text-red-200';
+                messageDiv.append(senderP, textP);
+            } else if (sender === 'loading') {
+                 messageDiv.className += ' bg-black/30 border-[var(--border-color)]';
+                 messageDiv.innerHTML = `<div class="flex items-center gap-2"><div class="loader"></div><p class="text-[var(--text-muted)]">Generating code... (<span id="timer">30</span>s)</p></div>`;
+            }
+
+            messageWrapper.appendChild(messageDiv);
+            chatHistory.appendChild(messageWrapper);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+            return messageWrapper;
+        }
+
+        async function generateAIResponse(userMessage, apiKey, model) {
+            isLoading = true;
+            const loadingMessage = appendMessage('', 'loading');
+            let timeLeft = 30;
+            const timerElement = document.getElementById('timer');
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                if (timerElement) timerElement.textContent = timeLeft;
+                if (timeLeft <= 0) clearInterval(timerInterval);
+            }, 1000);
+
+            const systemPrompt = `You are an expert full-stack web developer tasked with creating single-file, runnable web applications from a user's idea. Your goal is to impress the user by turning their concept into a polished, functional prototype.
+Your process is as follows:
+1.  **Analyze the Request:** Understand the core idea the user wants to build.
+2.  **Flesh out the Details:** Make creative and reasonable assumptions to fill in any gaps. If the user asks for a "timer," assume they want a visually appealing Pomodoro timer with start, stop, and reset buttons. If they ask for a "to-do list," create one with the ability to add and remove items.
+3.  **Build a Complete Application:** Generate a single, self-contained HTML file. This file must include all necessary HTML structure, CSS for styling, and JavaScript for interactivity.
+4.  **Use Modern Styling:** Use Tailwind CSS for a clean, modern, and responsive design. Include the Tailwind CDN script in the <head>.
+5.  **Ensure Interactivity:** Use JavaScript to make the application functional and engaging.
+**Crucial Output Rule:** Your response MUST be ONLY the raw code for the HTML file. Do not include any explanations, greetings, or markdown formatting like \`\`\`html. Just the code.`;
+
+            try {
+                let code = '';
+                if (model === 'gemini') {
+                    code = await callGeminiApi(userMessage, apiKey, systemPrompt);
+                } else if (model === 'openai') {
+                    code = await callOpenAiApi(userMessage, apiKey, systemPrompt);
+                } else if (model === 'llama') {
+                    code = await callLlamaApi(userMessage, systemPrompt);
+                }
+                updateCodeEditor(code);
+            } catch (error) {
+                console.error("API Error:", error);
+                appendMessage(`Failed to get response from API. ${error.message}`, 'ai-error');
+                updateCodeEditor(`// Error fetching code from the API.\n// Check the console for more details.`);
+            } finally {
+                isLoading = false;
+                loadingMessage.remove();
+                clearInterval(timerInterval);
+            }
+        }
+
+        async function callGeminiApi(userMessage, apiKey, systemPrompt) {
+            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            const fullPrompt = `${systemPrompt} The user's idea is: "${userMessage}"`;
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    contents: [{ parts: [{ text: fullPrompt }] }],
+                    generationConfig: {
+                        "responseMimeType": "text/plain",
+                    }
+                })
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error.message || `HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            return data.candidates[0].content.parts[0].text;
+        }
+
+        async function callOpenAiApi(userMessage, apiKey, systemPrompt) {
+            const API_URL = 'https://api.openai.com/v1/chat/completions';
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: `My idea is: "${userMessage}"` }
+                    ]
+                })
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error.message || `HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            return data.choices[0].message.content;
+        }
+        
+        async function callLlamaApi(userMessage, systemPrompt) {
+            const API_URL = 'http://localhost:11434/api/generate';
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: "llama3",
+                    prompt: userMessage, // Just the user's message
+                    stream: false,
+                    system: systemPrompt // System prompt goes here
+                })
+            });
+            if (!response.ok) {
+                throw new Error(`Could not connect to local Llama server. Is Ollama running?`);
+            }
+            const data = await response.json();
+            return data.response;
+        }
+
+
+        function updateCodeEditor(code) {
+            codeEditor.textContent = code;
+            codeEditor.className = codeEditor.className.replace(/language-\S+/g, '');
+            hljs.highlightElement(codeEditor);
+        }
+
+        function openPreviewWindow() {
+            const code = codeEditor.textContent;
+            if (!previewWindow || previewWindow.closed) {
+                previewWindow = window.open('', 'LivePreview', 'width=800,height=600,scrollbars=yes,resizable=yes');
+            }
+            previewWindow.document.open();
+            previewWindow.document.write(code);
+            previewWindow.document.close();
+            previewWindow.focus();
+        }
+
+        function copyCodeToClipboard() {
+            const code = codeEditor.textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                copyButton.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyButton.textContent = 'Copy Code';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy code: ', err);
+            });
+        }
+
+        // Initial highlight
+        hljs.highlightElement(codeEditor);
+    </script>
+</body>
+</html>
